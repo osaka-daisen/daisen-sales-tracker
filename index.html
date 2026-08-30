@@ -11,7 +11,7 @@
   --teal:#00806f; --teal-d:#00614f; --teal-l:#e4f0ed;
   --ink:#16211f; --ink-2:#46574f; --ink-3:#78877f;
   --bg:#f2f6f4; --card:#fff; --line:#dce5e1; --line-2:#c5d3ce;
-  --blue:#2f6fb0; --amber:#b8860b; --green:#00806f; --grey:#7c8b85; --purple:#6b5ea8;
+  --blue:#2f6fb0; --amber:#b8860b; --orange:#c2621c; --green:#00806f; --grey:#7c8b85; --purple:#6b5ea8;
   --danger:#b3402a;
   --sh:0 1px 2px rgba(20,32,28,.05),0 8px 22px rgba(20,32,28,.06);
 }
@@ -212,7 +212,7 @@ tfoot td{font-weight:700;background:#f7faf9}
     <div class="kpis" id="s-kpis"></div>
     <div class="card">
       <h2>担当者別</h2>
-      <p class="hint">AP件数＝その月に動いた件数／見積提出＝見積・交渉中＋契約済／達成率＝実績÷目標</p>
+      <p class="hint">AP件数＝その月に動いた件数／見積提出＝見積・交渉中＋契約予定＋契約済／実績金額は契約済のみ／達成率＝実績÷目標</p>
       <div style="overflow-x:auto"><table id="s-table"></table></div>
     </div>
     <div class="split">
@@ -259,6 +259,7 @@ function yen(n){ return (Number(n)||0).toLocaleString(); }
 function statusKind(s){
   s = String(s||"");
   if (s.indexOf("契約済") >= 0) return {k:"contract", c:"var(--green)"};
+  if (s.indexOf("契約予定") >= 0) return {k:"planned", c:"var(--orange)"};
   if (s.indexOf("見積") >= 0 || s.indexOf("交渉") >= 0) return {k:"quote", c:"var(--amber)"};
   if (s.indexOf("アプローチ") >= 0) return {k:"approach", c:"var(--blue)"};
   if (s.indexOf("クローズ") >= 0) return {k:"closed", c:"var(--grey)"};
@@ -489,34 +490,39 @@ function renderSummary(){
     return monthOf(r.date) === month && (!scope || r.person === scope);
   });
   var contracts = rows.filter(function(r){ return statusKind(r.status).k === "contract"; });
-  var quotes = rows.filter(function(r){ var k=statusKind(r.status).k; return k==="quote"||k==="contract"; });
+  var planned = rows.filter(function(r){ return statusKind(r.status).k === "planned"; });
+  var quotes = rows.filter(function(r){ var k=statusKind(r.status).k; return k==="quote"||k==="planned"||k==="contract"; });
+  var plannedAmount = planned.reduce(function(s,r){ return s + (Number(r.contract)||Number(r.quote)||0); }, 0);
   var amount = contracts.reduce(function(s,r){ return s + (Number(r.contract)||0); }, 0);
   var targetAll = 0;
   Object.keys(state.targets).forEach(function(p){ if(!scope || p===scope) targetAll += state.targets[p]; });
 
   $("s-kpis").innerHTML =
-    kpi(rows.length, "AP件数") + kpi(quotes.length, "見積提出") + kpi(contracts.length, "契約") +
+    kpi(rows.length, "AP件数") + kpi(quotes.length, "見積提出") +
+    kpi(planned.length, "契約予定") + kpi(contracts.length, "契約") +
     kpi(yen(amount) + "円", "実績金額", true) +
-    kpi(targetAll ? Math.round(amount/targetAll*100) + "%" : "—", "達成率", true);
+    kpi(targetAll ? Math.round(amount/targetAll*100) + "%" : "—", "達成率", true) +
+    kpi(yen(plannedAmount) + "円", "予定金額", true);
 
   // 担当者別
   var people = Object.keys(state.targets);
   state.rows.forEach(function(r){ if (r.person && people.indexOf(r.person)<0) people.push(r.person); });
-  var head = "<thead><tr><th>担当</th><th>AP</th><th>見積</th><th>契約</th><th>実績金額</th><th>目標</th><th>達成率</th></tr></thead>";
+  var head = "<thead><tr><th>担当</th><th>AP</th><th>見積</th><th>予定</th><th>契約</th><th>実績金額</th><th>目標</th><th>達成率</th></tr></thead>";
   var body = people.map(function(p){
     var mine = rows.filter(function(r){ return r.person === p; });
     var c = mine.filter(function(r){ return statusKind(r.status).k === "contract"; });
-    var qn = mine.filter(function(r){ var k=statusKind(r.status).k; return k==="quote"||k==="contract"; }).length;
+    var pn = mine.filter(function(r){ return statusKind(r.status).k === "planned"; }).length;
+    var qn = mine.filter(function(r){ var k=statusKind(r.status).k; return k==="quote"||k==="planned"||k==="contract"; }).length;
     var amt = c.reduce(function(s,r){ return s + (Number(r.contract)||0); }, 0);
     var tg = state.targets[p] || 0;
     var pct = tg ? Math.round(amt/tg*100) : 0;
-    return "<tr><td>" + esc(p) + "</td><td>" + mine.length + "</td><td>" + qn + "</td><td>" + c.length +
+    return "<tr><td>" + esc(p) + "</td><td>" + mine.length + "</td><td>" + qn + "</td><td>" + pn + "</td><td>" + c.length +
       "</td><td>" + yen(amt) + "</td><td>" + yen(tg) + "</td><td>" + (tg ? pct + "%" : "—") +
       '<div class="bar"><span style="width:' + Math.min(100,pct) + '%"></span></div></td></tr>';
   }).join("");
   var allAmt = amount, allTg = 0;
   people.forEach(function(p){ allTg += state.targets[p]||0; });
-  var foot = "<tfoot><tr><td>合計</td><td>" + rows.length + "</td><td>" + quotes.length + "</td><td>" + contracts.length +
+  var foot = "<tfoot><tr><td>合計</td><td>" + rows.length + "</td><td>" + quotes.length + "</td><td>" + planned.length + "</td><td>" + contracts.length +
     "</td><td>" + yen(allAmt) + "</td><td>" + yen(allTg) + "</td><td>" + (allTg ? Math.round(allAmt/allTg*100)+"%" : "—") + "</td></tr></tfoot>";
   $("s-table").innerHTML = head + "<tbody>" + body + "</tbody>" + foot;
 

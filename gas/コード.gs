@@ -31,7 +31,7 @@ var COL = {
 
 // スプレッドシートが空のときに使う既定の選択肢
 var FALLBACK = {
-  status: ['🔵 アプローチ中', '🟡 見積・交渉中', '🟢 契約済', '⚫ クローズ', '⬜ 時期待ち'],
+  status: ['🔵 アプローチ中', '🟡 見積・交渉中', '🟠 契約予定', '🟢 契約済', '⚫ クローズ', '⬜ 時期待ち'],
   next: ['📝 見積提出', '📄 見積フォロー', '📞 TEL', '🔄 再訪問', '🏁 完成前再訪', '✅ 完了', '—'],
   reason: ['契約済み業者あり', '指定業者あり', '他社価格が安い', '予算なし', '連絡不通', 'オーナー不在', 'その他'],
   person: ['木村', '原田', '藤川'],
@@ -132,7 +132,7 @@ function json_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/** その列に実際に入っている値を多い順に返す（選択肢を実データに合わせる） */
+/** その列に実際に入っている値を多い順に返す（業種・エリアなど、よく使う順に出したいもの用） */
 function optionsOf_(rows, key, fallback) {
   var count = {};
   rows.forEach(function (r) {
@@ -141,6 +141,19 @@ function optionsOf_(rows, key, fallback) {
   });
   var list = Object.keys(count).sort(function (a, b) { return count[b] - count[a]; });
   fallback.forEach(function (v) { if (list.indexOf(v) < 0) list.push(v); });
+  return list;
+}
+
+/** 決まった順番で返す（ステータスなど、進捗の順に並べたいもの用）。
+ *  既定リストにない値がシートにあれば後ろに足す。 */
+function orderedOptionsOf_(rows, key, fixed) {
+  var seen = {};
+  rows.forEach(function (r) {
+    var v = String(r[key] || '').trim();
+    if (v) seen[v] = true;
+  });
+  var list = fixed.slice();
+  Object.keys(seen).forEach(function (v) { if (list.indexOf(v) < 0) list.push(v); });
   return list;
 }
 
@@ -160,9 +173,9 @@ function doGet(e) {
       person: optionsOf_(data.rows, 'person', FALLBACK.person),
       industry: optionsOf_(data.rows, 'industry', FALLBACK.industry),
       area: optionsOf_(data.rows, 'area', FALLBACK.area),
-      status: optionsOf_(data.rows, 'status', FALLBACK.status),
-      next: optionsOf_(data.rows, 'next', FALLBACK.next),
-      reason: optionsOf_(data.rows, 'reason', FALLBACK.reason)
+      status: orderedOptionsOf_(data.rows, 'status', FALLBACK.status),
+      next: orderedOptionsOf_(data.rows, 'next', FALLBACK.next),
+      reason: orderedOptionsOf_(data.rows, 'reason', FALLBACK.reason)
     },
     rows: data.rows
   });
