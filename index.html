@@ -303,7 +303,7 @@ var GAS_URL = "https://script.google.com/macros/s/AKfycbwCj0_D5aY16qMa9UvgousZ3g
 var DEFAULTS = {
   person: ["木村","原田","藤川"],
   status: ["🔵 アプローチ中","🟡 見積・交渉中","🟠 契約予定","🟢 契約済","⚫ クローズ","⬜ 時期待ち"],
-  method: ["飛び込み訪問","再訪問","TEL","DM・郵送","メール","紹介・つながり"],
+  method: ["飛び込み訪問","再訪問","TEL","DM・郵送","メール","紹介・つながり","問い合わせ"],
   result: ["担当者と面談できた","名刺・パンフを置いた","不在だった","門前払い",
            "見積依頼をもらった","見積を提出した","後日連絡の約束","断られた","契約になった"],
   next:   ["📝 見積提出","📄 見積フォロー","📞 TEL","🔄 再訪問","🏁 完成前再訪","✅ 完了","—"],
@@ -470,8 +470,19 @@ function chipValue(el){
 function setChip(el, value){
   [].forEach.call(el.children, function(c){ c.setAttribute("aria-pressed", c.dataset.value===value ? "true":"false"); });
 }
+function mergeOpts(serverList, defaults){
+  var out = (defaults||[]).slice();
+  (serverList||[]).forEach(function(v){ if (v && out.indexOf(v) < 0) out.push(v); });
+  return out;
+}
 function buildMasters(){
   var m = state.masters;
+  ["status","next","reason","method","result"].forEach(function(k){
+    m[k] = mergeOpts(m[k], DEFAULTS[k]);
+  });
+  ["person","industry","area"].forEach(function(k){
+    if (!m[k] || !m[k].length) m[k] = DEFAULTS[k];
+  });
   fillAreaSelect($("f-area"), m.area||[]);
   fillSelect($("f-industry"), m.industry||[], "（選択）");
   fillSelect($("f-reason"), m.reason||[], "（なし）");
