@@ -21,6 +21,8 @@
 var SHEET_ID = '10vKZyOb7-RBx6jTgQMev-ojPoEqJpQkm41qRKJFB24Q';   // （新）大泉衛生営業進捗管理
 var SHEET_NAME = '';            // 空ならブックの最初のシートを使う
 var LOG_SHEET_NAME = '活動ログ';
+// 「食べログ新規オープン飲食店_マスター」。見込み探し用に読むだけ（書き込みはしない）
+var TABELOG_SHEET_ID = '1P6IF3MzdNaQYg5mDNn21HbuldvtZBCE8BB0-7cqBymQ';
 var TARGETS = { '木村': 22000, '原田': 22000, '藤川': 16000 };   // 個人の月間目標(円)
 
 // 見出し行に必ずある列名。この行を見出し行と判断する目印にする。
@@ -210,9 +212,93 @@ function orderedOptionsOf_(rows, key, fixed) {
   return list;
 }
 
+/* ================= 見込み探し（食べログ新規オープン） ================= */
+
+// 食べログのジャンルを、こちらの業種名に寄せる
+var GENRE_MAP = [
+  ['居酒屋', '居酒屋'], ['立ち飲み', '立ち飲み'], ['焼肉', '焼き肉'], ['焼き肉', '焼き肉'],
+  ['ホルモン', '焼き肉'], ['ラーメン', 'ラーメン'], ['カレー', 'カレー'], ['イタリア', 'イタリアン'],
+  ['バー', 'バー'], ['寿司', '和食'], ['すし', '和食'], ['日本料理', '和食'], ['そば', '和食'],
+  ['うどん', '和食'], ['とんかつ', '和食'], ['割烹', '和食'], ['懐石', '和食'],
+  ['カフェ', '喫茶店'], ['喫茶', '喫茶店'], ['パン', '喫茶店'], ['ドーナツ', '喫茶店'],
+  ['ティー', '喫茶店'], ['ジュース', '喫茶店'], ['タピオカ', '喫茶店'], ['スイーツ', '喫茶店']
+];
+
+function genreToIndustry_(genre) {
+  var g = String(genre || '');
+  for (var i = 0; i < GENRE_MAP.length; i++) {
+    if (g.indexOf(GENRE_MAP[i][0]) >= 0) return GENRE_MAP[i][1];
+  }
+  return 'その他';
+}
+
+/** 「大阪市北区 梅田3-1-1」→ {area:'北区', address:'梅田3-1-1'} */
+function splitAddress_(addr) {
+  var a = String(addr || '').trim();
+  var m = a.match(/^大阪市([^\s0-9]{1,4}区)\s*(.*)$/);
+  if (m) return { area: m[1], address: m[2] };
+  m = a.match(/^堺市([^\s0-9]{1,4}区)\s*(.*)$/);
+  if (m) return { area: '堺市' + m[1], address: m[2] };
+  return { area: '', address: a };
+}
+
+/**
+ * 食べログの新規オープンシートを読む。
+ * 日付ごとのシートに同じ店が繰り返し載るので、店名＋住所で1件にまとめる。
+ */
+function tabelogRows_() {
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(TABELOG_SHEET_ID);
+  } catch (e) {
+    return { ok: false, error: '食べログのシートを開けませんでした' };
+  }
+  var seen = {}, out = [];
+  ss.getSheets().forEach(function (sh) {
+    var last = sh.getLastRow();
+    if (last < 2) return;
+    var values = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
+    var head = -1, map = {};
+    for (var r = 0; r < Math.min(5, values.length); r++) {
+      if (values[r].indexOf('店舗名') >= 0) {
+        head = r;
+        values[r].forEach(function (h, i) { if (h) map[String(h).trim()] = i; });
+        break;
+      }
+    }
+    if (head < 0) return;
+    var get = function (row, name) {
+      var i = map[name];
+      return i === undefined ? '' : row[i];
+    };
+    for (var i = head + 1; i < values.length; i++) {
+      var row = values[i];
+      var name = String(get(row, '店舗名') || '').trim();
+      var addr = String(get(row, '住所') || '').trim();
+      if (!name || !addr) continue;
+      var key = name + '|' + addr;
+      if (seen[key]) continue;
+      seen[key] = true;
+      var sp = splitAddress_(addr);
+      var genre = String(get(row, 'ジャンル') || '').trim();
+      out.push({
+        name: name, genre: genre, industry: genreToIndustry_(genre),
+        area: sp.area, address: sp.address, fullAddress: addr,
+        open: fmtDate_(get(row, 'オープン日')) || String(get(row, 'オープン日') || ''),
+        tel: String(get(row, '電話番号') || '').replace('不明の為情報お待ちしております', ''),
+        station: String(get(row, '最寄駅') || ''),
+        got: fmtDate_(get(row, '取得日')) || String(get(row, '取得日') || '')
+      });
+    }
+  });
+  return { ok: true, kind: 'tabelog', rows: out };
+}
+
 /* ================= 読み取り ================= */
 
 function doGet(e) {
+  var action = (e && e.parameter && e.parameter.action) || '';
+  if (action === 'tabelog') return json_(tabelogRows_());
   var data = readAll_();
   var logs = readLogs_();
   return json_({
