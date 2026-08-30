@@ -23,6 +23,8 @@ var SHEET_NAME = '';            // 空ならブックの最初のシートを使
 var LOG_SHEET_NAME = '活動ログ';
 // 「食べログ新規オープン飲食店_マスター」。見込み探し用に読むだけ（書き込みはしない）
 var TABELOG_SHEET_ID = '1P6IF3MzdNaQYg5mDNn21HbuldvtZBCE8BB0-7cqBymQ';
+var TABELOG_SCAN_SHEETS = 70;   // 新しい方から何日分のシートを読むか
+var TABELOG_CACHE_SEC = 3600;   // 読み込んだ結果を何秒とっておくか（1時間）
 var TARGETS = { '木村': 22000, '原田': 22000, '藤川': 16000 };   // 個人の月間目標(円)
 
 // 見出し行に必ずある列名。この行を見出し行と判断する目印にする。
@@ -232,6 +234,17 @@ function genreToIndustry_(genre) {
   return 'その他';
 }
 
+/** 「2026年9月18日」→「2026/09/18」。読めなければ空文字。 */
+function openKey_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy/MM/dd');
+  }
+  var m = String(v || '').match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+  if (!m) return '';
+  var pad = function (n) { return (String(n).length < 2 ? '0' : '') + n; };
+  return m[1] + '/' + pad(m[2]) + '/' + pad(m[3]);
+}
+
 /** 「大阪市北区 梅田3-1-1」→ {area:'北区', address:'梅田3-1-1'} */
 function splitAddress_(addr) {
   var a = String(addr || '').trim();
@@ -247,14 +260,21 @@ function splitAddress_(addr) {
  * 日付ごとのシートに同じ店が繰り返し載るので、店名＋住所で1件にまとめる。
  */
 function tabelogRows_() {
+  // 同じ日のうちは読み直さない（2回目以降はすぐ返る）
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'tabelog_' + today_();
+  var hit = cache.get(cacheKey);
+  if (hit) return JSON.parse(hit);
+
   var ss;
   try {
     ss = SpreadsheetApp.openById(TABELOG_SHEET_ID);
   } catch (e) {
     return { ok: false, error: '食べログのシートを開けませんでした' };
   }
+  var today = today_();
   var seen = {}, out = [];
-  ss.getSheets().forEach(function (sh) {
+  ss.getSheets().slice(0, TABELOG_SCAN_SHEETS).forEach(function (sh) {
     var last = sh.getLastRow();
     if (last < 2) return;
     var values = sh.getRange(1, 1, last, sh.getLastColumn()).getValues();
@@ -279,19 +299,25 @@ function tabelogRows_() {
       var key = name + '|' + addr;
       if (seen[key]) continue;
       seen[key] = true;
+      // 開店済みの店は返さない（オープン日が読めないものは残す）
+      var ok = openKey_(get(row, 'オープン日'));
+      if (ok && ok < today) continue;
       var sp = splitAddress_(addr);
       var genre = String(get(row, 'ジャンル') || '').trim();
       out.push({
         name: name, genre: genre, industry: genreToIndustry_(genre),
-        area: sp.area, address: sp.address, fullAddress: addr,
-        open: fmtDate_(get(row, 'オープン日')) || String(get(row, 'オープン日') || ''),
+        area: sp.area, address: sp.address,
+        open: String(get(row, 'オープン日') || ''), openKey: ok,
         tel: String(get(row, '電話番号') || '').replace('不明の為情報お待ちしております', ''),
-        station: String(get(row, '最寄駅') || ''),
-        got: fmtDate_(get(row, '取得日')) || String(get(row, '取得日') || '')
+        station: String(get(row, '最寄駅') || '')
       });
     }
   });
-  return { ok: true, kind: 'tabelog', rows: out };
+  out.sort(function (a, b) { return (a.openKey || '9999').localeCompare(b.openKey || '9999'); });
+  var res = { ok: true, kind: 'tabelog', rows: out };
+  var json = JSON.stringify(res);
+  if (json.length < 95000) cache.put(cacheKey, json, TABELOG_CACHE_SEC);
+  return res;
 }
 
 /* ================= 読み取り ================= */

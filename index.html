@@ -193,9 +193,8 @@ tfoot td{font-weight:700;background:#f7faf9}
   <section id="v-find" hidden>
     <div class="card">
       <h2>新しくオープンする店</h2>
-      <p class="hint">食べログの新規オープン情報から。オープン日が近い順です。「登録」を押すと住所と業種を入れた状態で新規登録に移ります。</p>
+      <p class="hint">食べログの新規オープン情報から、これから開く店だけを表示しています。オープン日が近い順です。「登録」を押すと住所と業種を入れた状態で新規登録に移ります。</p>
       <div class="filters">
-        <select id="fd-when"><option value="future">これから開く店だけ</option><option value="all">開店済みも含めてすべて</option></select>
         <select id="fd-area"><option value="">大阪市・堺市すべて</option><option>大阪市</option><option>堺市</option></select>
         <input id="fd-q" placeholder="店名・町名で絞る">
       </div>
@@ -952,29 +951,23 @@ function loadShops(){
 }
 /** 「2026年9月18日」→「2026-09-18」。読み取れなければ空文字。 */
 function openKey(sp){
+  if (sp.openKey) return sp.openKey.replace(/\//g, "-");
   var m = String(sp.open || "").match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
   return m ? m[1] + "-" + String(m[2]).padStart(2,"0") + "-" + String(m[3]).padStart(2,"0") : "";
 }
 function renderShops(){
-  var area = $("fd-area").value, q = $("fd-q").value.trim(), when = $("fd-when").value;
-  var today = todayStr();
+  var area = $("fd-area").value, q = $("fd-q").value.trim();
   var list = shops.filter(function(sp){
     var inArea = !area || (area === "堺市" ? sp.area.indexOf("堺市") === 0
                                            : sp.area && sp.area.indexOf("堺市") < 0);
     if (!inArea) return false;
-    if (q && (sp.name + sp.address + sp.area + sp.genre).indexOf(q) < 0) return false;
-    if (when === "future"){
-      var k = openKey(sp);
-      if (k && k < today) return false;     // オープン日不明のものは残す
-    }
-    return true;
+    return !q || (sp.name + sp.address + sp.area + sp.genre).indexOf(q) >= 0;
   }).sort(function(a,b){
-    var ka = openKey(a) || "9999", kb = openKey(b) || "9999";   // 日付不明は最後
-    return ka.localeCompare(kb);
+    return (openKey(a) || "9999").localeCompare(openKey(b) || "9999");   // 日付不明は最後
   });
 
   var host = $("fd-list");
-  $("fd-count").textContent = list.length + " 件" + (when === "future" ? "（" + today.replace(/-/g,"/") + " 以降）" : "");
+  $("fd-count").textContent = list.length + " 件（" + todayStr().replace(/-/g,"/") + " 以降にオープン）";
   if (!list.length){ host.innerHTML = '<p class="hint">該当するお店がありません。</p>'; return; }
   host.innerHTML = list.slice(0, 120).map(function(sp, i){
     return '<div class="shop" data-i="' + i + '">' +
@@ -1012,7 +1005,7 @@ function prefillFrom(sp){
   tab("t-new");
   toast(sp.name + " を下書きしました");
 }
-["fd-area","fd-when"].forEach(function(id){ $(id).addEventListener("change", renderShops); });
+$("fd-area").addEventListener("change", renderShops);
 $("fd-jarea").addEventListener("change", renderJobs);
 $("fd-q").addEventListener("input", renderShops);
 
