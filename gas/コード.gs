@@ -42,7 +42,7 @@ var FALLBACK = {
   method: ['飛び込み訪問', '再訪問', 'TEL', 'DM・郵送', 'メール', '紹介・つながり', '問い合わせ'],
   result: ['担当者と面談できた', '名刺・パンフを置いた', '不在だった', '門前払い',
            '見積依頼をもらった', '見積を提出した', '後日連絡の約束', '断られた', '契約になった'],
-  next: ['📝 見積提出', '📄 見積フォロー', '📞 TEL', '🔄 再訪問', '🏁 完成前再訪', '✅ 完了', '—'],
+  next: ['📝 見積提出', '📄 見積フォロー', '📞 TEL', '💬 返事確認', '📅 アポ確認', '🔄 再訪問', '🏁 完成前再訪', '✅ 完了', '—'],
   reason: ['契約済み業者あり', '指定業者あり', '他社価格が安い', '予算なし', '連絡不通', 'オーナー不在', 'その他'],
   person: ['木村', '原田', '藤川'],
   industry: ['居酒屋', '焼き肉', 'ラーメン', '和食', 'イタリアン', 'カレー', 'バー', '立ち飲み', '喫茶店',
@@ -441,6 +441,44 @@ function 整理_下の空行を削除() {
   sh.deleteRows(from, count);
   Logger.log(from + ' 行目から ' + count + ' 行を削除しました。');
   Logger.log('次に登録される行: ' + (lastData + 1) + ' 行目');
+}
+
+/**
+ * 「次回アクション」の表記ゆれを揃える。
+ * 絵文字違いで同じ意味の値（🚶 再訪問 と 🔄 再訪問 など）を、上の FALLBACK.next の形に統一する。
+ * 中身の文字が同じものだけを書き換えるので、意味が変わることはありません。
+ */
+function 整理_次回アクションの表記を統一() {
+  var sh = sheet_();
+  var lay = ensureColumns_(sh, layout_(sh));
+  var col = lay.map[COL.next];
+  if (!col) { Logger.log('次回アクションの列が見つかりません。'); return; }
+  var lastData = lastDataRow_(sh, lay);
+  if (lastData < lay.firstData) { Logger.log('データがありません。'); return; }
+
+  var key = function (v) {
+    var t = String(v == null ? '' : v).replace(/^[^぀-ヿ一-鿿A-Za-z0-9]+/, '').trim();
+    return t || String(v == null ? '' : v).trim();
+  };
+  var canon = {};
+  FALLBACK.next.forEach(function (v) { canon[key(v)] = v; });
+
+  var range = sh.getRange(lay.firstData, col, lastData - lay.firstData + 1, 1);
+  var values = range.getValues();
+  var changed = 0, report = {};
+  values.forEach(function (row, i) {
+    var v = String(row[0] == null ? '' : row[0]).trim();
+    if (!v) return;
+    var to = canon[key(v)];
+    if (to && to !== v) {
+      report[v + ' → ' + to] = (report[v + ' → ' + to] || 0) + 1;
+      values[i][0] = to;
+      changed++;
+    }
+  });
+  if (changed) range.setValues(values);
+  Logger.log('揃えた件数: ' + changed + ' 件');
+  Object.keys(report).forEach(function (k) { Logger.log('  ' + k + '  (' + report[k] + '件)'); });
 }
 
 /* ================= 動作確認用 ================= */

@@ -306,7 +306,7 @@ var DEFAULTS = {
   method: ["飛び込み訪問","再訪問","TEL","DM・郵送","メール","紹介・つながり","問い合わせ"],
   result: ["担当者と面談できた","名刺・パンフを置いた","不在だった","門前払い",
            "見積依頼をもらった","見積を提出した","後日連絡の約束","断られた","契約になった"],
-  next:   ["📝 見積提出","📄 見積フォロー","📞 TEL","🔄 再訪問","🏁 完成前再訪","✅ 完了","—"],
+  next:   ["📝 見積提出","📄 見積フォロー","📞 TEL","💬 返事確認","📅 アポ確認","🔄 再訪問","🏁 完成前再訪","✅ 完了","—"],
   reason: ["契約済み業者あり","指定業者あり","他社価格が安い","予算なし","連絡不通","オーナー不在","その他"],
   industry: ["居酒屋","焼き肉","ラーメン","和食","イタリアン","カレー","バー","立ち飲み","喫茶店","飲食店",
              "美容室","サービス業","病院","介護施設","ホテル","民泊","マンション","アパート",
@@ -470,9 +470,24 @@ function chipValue(el){
 function setChip(el, value){
   [].forEach.call(el.children, function(c){ c.setAttribute("aria-pressed", c.dataset.value===value ? "true":"false"); });
 }
+/** 先頭の絵文字や記号を取り除いた文字を、その項目の「中身」とみなす */
+function labelKey(v){
+  var t = String(v||"").replace(/^[^぀-ヿ一-鿿A-Za-z0-9]+/, "").trim();
+  return t || String(v||"").trim();
+}
+/** ツール側の既定リストを軸に、シートにしかない値だけを足す。
+    絵文字違いで同じ意味の項目（🚶再訪問 と 🔄再訪問 など）は既定側にまとめる。 */
 function mergeOpts(serverList, defaults){
   var out = (defaults||[]).slice();
-  (serverList||[]).forEach(function(v){ if (v && out.indexOf(v) < 0) out.push(v); });
+  var keys = {};
+  out.forEach(function(v){ keys[labelKey(v)] = true; });
+  (serverList||[]).forEach(function(v){
+    if (!v) return;
+    var k = labelKey(v);
+    if (keys[k]) return;
+    keys[k] = true;
+    out.push(v);
+  });
   return out;
 }
 function buildMasters(){
