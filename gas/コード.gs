@@ -322,17 +322,43 @@ function writeLog_(caseId, item) {
   ]);
 }
 
+/**
+ * 追加する行を決める。
+ * getLastRow() は見えない書式が残っている行も拾ってしまい、
+ * データのずっと下に飛んでしまうことがあるため、実データの最終行を自分で探す。
+ */
+function appendRow_(sh, lay) {
+  var last = sh.getLastRow();
+  if (last < lay.firstData) return lay.firstData;
+  var keys = [COL.date, COL.address, COL.status, COL.person, COL.no].map(function (n) { return lay.map[n]; })
+    .filter(function (c) { return c; });
+  var values = sh.getRange(lay.firstData, 1, last - lay.firstData + 1, sh.getLastColumn()).getValues();
+  var lastData = lay.firstData - 1;
+  values.forEach(function (v, i) {
+    var filled = keys.some(function (c) { return String(v[c - 1] || '').trim() !== ''; });
+    if (filled) lastData = lay.firstData + i;
+  });
+  var row = lastData + 1;
+  // 念のため、その行に何か入っていたら従来どおり末尾に足す
+  if (row <= last) {
+    var check = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0].join('');
+    if (check !== '') row = last + 1;
+  }
+  return Math.max(row, lay.firstData);
+}
+
 function create_(item) {
   var sh = sheet_();
   var lay = ensureColumns_(sh, layout_(sh));
-  var row = Math.max(sh.getLastRow() + 1, lay.firstData);
+  var row = appendRow_(sh, lay);
   var id = Utilities.getUuid();
   sh.getRange(row, lay.map[COL.id]).setValue(id);
 
   if (lay.map[COL.no]) {
     var maxNo = 0;
+    var upto = Math.max(row - 1, lay.firstData);
     if (sh.getLastRow() >= lay.firstData) {
-      sh.getRange(lay.firstData, lay.map[COL.no], sh.getLastRow() - lay.firstData + 1, 1)
+      sh.getRange(lay.firstData, lay.map[COL.no], upto - lay.firstData + 1, 1)
         .getValues().forEach(function (v) { maxNo = Math.max(maxNo, num_(v[0])); });
     }
     sh.getRange(row, lay.map[COL.no]).setValue(maxNo + 1);
