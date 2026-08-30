@@ -726,6 +726,14 @@ function openEdit(row){
       '<label class="fld"><span>完成日・オープン日</span><input id="e-done" type="date" value="' + toInputDate(r.done) + '"></label>' +
       '<label class="fld"><span>メモ</span><textarea id="e-memo">' + esc(r.memo) + '</textarea></label>' +
       '<button class="primary" id="e-save" type="button">保存する</button></div>' +
+      '<div class="card"><h2 style="font-size:14px">契約が決まったら</h2>' +
+        '<p class="hint">この案件の住所・店名を引き継いで次の書類に進めます。</p>' +
+        '<a class="linkrow" id="e-dispatch" href="#" target="_blank" rel="noopener">' +
+          '<span class="t">収集手配書を作る</span><span class="d">住所・品目を入れた状態で開きます</span><span class="arw">›</span></a>' +
+        '<a class="linkrow" href="https://osaka-daisen.github.io/daisen-ippan-form/sakusei/" target="_blank" rel="noopener">' +
+          '<span class="t">契約書類メーカーを開く</span><span class="d">お申込みフォームの内容から契約書一式を作成</span><span class="arw">›</span></a>' +
+        '<button class="ghost" id="e-formurl" type="button" style="margin-top:4px">お申込みフォームのURLをコピー</button>' +
+      '</div>' +
     '</div></div>';
   document.body.appendChild(wrap);
   fillChips($("e-method"), state.masters.method||DEFAULTS.method, false);
@@ -746,6 +754,15 @@ function openEdit(row){
   fillChips($("e-status"), state.masters.status||[], true); setChip($("e-status"), r.status);
   fillChips($("e-next"), state.masters.next||[], false);   setChip($("e-next"), r.next);
   fillSelect($("e-reason"), state.masters.reason||[], "（なし）"); $("e-reason").value = r.reason || "";
+  $("e-dispatch").href = dispatchLink(r);
+  $("e-formurl").addEventListener("click", function(){
+    var url = "https://osaka-daisen.github.io/daisen-ippan-form/?kind=ippan";
+    var btn = this;
+    (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject())
+      .then(function(){ btn.textContent = "コピーしました ✓"; })
+      .catch(function(){ btn.textContent = url; })
+      .then(function(){ setTimeout(function(){ btn.textContent = "お申込みフォームのURLをコピー"; }, 2600); });
+  });
   wrap.addEventListener("click", function(e){ if (e.target === wrap) wrap.remove(); });
   wrap.querySelector(".close").addEventListener("click", function(){ wrap.remove(); });
   $("e-save").addEventListener("click", function(){
@@ -991,6 +1008,22 @@ function daysLabel(sp){
   if (diff > 0) return "　あと" + diff + "日";
   if (diff === 0) return "　本日";
   return "　" + (-diff) + "日前に開店";
+}
+
+/** 案件の中身を収集手配書に引き継ぐリンク。
+    店名はメモの先頭（食べログから取り込んだ場合はそこに店名が入る）を使う。 */
+function dispatchLink(r){
+  var name = String(r.memo || "").split(/[　\s\/]/)[0] || r.company || "";
+  var q = {
+    name: name,
+    addr: (r.area || "") + (r.address || ""),
+    item: "事業系一般ごみ",
+    staff: r.person || "",
+    note: r.company ? "管理会社：" + r.company : ""
+  };
+  return "https://osaka-daisen.github.io/daisen-dispatch-tool/?" +
+    Object.keys(q).filter(function(k){ return q[k]; })
+      .map(function(k){ return k + "=" + encodeURIComponent(q[k]); }).join("&");
 }
 
 /** 探した店を新規登録フォームに流し込む */
