@@ -120,6 +120,7 @@ tfoot td{font-weight:700;background:#f7faf9}
   padding:12px 20px;border-radius:999px;font-size:14px;z-index:80;box-shadow:var(--sh);max-width:92vw}
 .toast.err{background:var(--danger)}
 .pending{background:#fff6e5;border:1px solid #e8cf97;color:#7a5a10;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-bottom:10px}
+.notready{background:#fdeceb;border:1px solid #f0bfb8;color:#8d3527;border-radius:10px;padding:12px 14px;font-size:12.5px;margin-bottom:10px;line-height:1.7}
 [hidden]{display:none !important}
 .setup{font-size:13px;line-height:1.9}
 .setup code{background:var(--teal-l);padding:2px 6px;border-radius:5px;font-size:12px;word-break:break-all}
@@ -141,6 +142,11 @@ tfoot td{font-weight:700;background:#f7faf9}
 
 <div class="wrap">
   <div class="pending" id="pending" hidden></div>
+  <div class="notready" id="notready" hidden>
+    <b>保存先がまだ設定されていません。</b>
+    このままでも入力欄は使えますが、登録内容は保存されません。
+    <button class="ghost" id="go-setup" type="button" style="margin-top:8px">設定する</button>
+  </div>
 
   <!-- ============ 新規登録 ============ -->
   <section id="v-new">
@@ -238,6 +244,22 @@ tfoot td{font-weight:700;background:#f7faf9}
    ========================================================= */
 var GAS_URL = "";
 
+/* サーバーに繋がる前でも使えるように、選択肢の既定値を持っておく。
+   接続後はスプレッドシートの実データで置き換わる。 */
+var DEFAULTS = {
+  person: ["木村","原田","藤川"],
+  status: ["🔵 アプローチ中","🟡 見積・交渉中","🟠 契約予定","🟢 契約済","⚫ クローズ","⬜ 時期待ち"],
+  next:   ["📝 見積提出","📄 見積フォロー","📞 TEL","🔄 再訪問","🏁 完成前再訪","✅ 完了","—"],
+  reason: ["契約済み業者あり","指定業者あり","他社価格が安い","予算なし","連絡不通","オーナー不在","その他"],
+  industry: ["居酒屋","焼き肉","ラーメン","和食","イタリアン","カレー","バー","立ち飲み","喫茶店","飲食店",
+             "美容室","サービス業","病院","介護施設","ホテル","民泊","マンション","アパート",
+             "テナントビル","オフィスビル","事務所","店舗","スーパー","その他"],
+  area: ["北区","都島区","福島区","此花区","中央区","西区","港区","大正区","天王寺区","浪速区",
+         "西淀川区","淀川区","東淀川区","東成区","生野区","旭区","城東区","鶴見区","阿倍野区",
+         "住之江区","住吉区","東住吉区","西成区","平野区",
+         "堺市堺区","堺市中区","堺市東区","堺市西区","堺市南区","堺市北区","堺市美原区","その他"]
+};
+
 var LS = {url:"daisen-sales-gas-url", me:"daisen-sales-me", queue:"daisen-sales-queue"};
 var $ = function(id){ return document.getElementById(id); };
 var state = {rows:[], masters:{}, targets:{}, me:"", editing:null};
@@ -307,8 +329,13 @@ function flushQueue(){
 
 /* ---------- 読み込み ---------- */
 function load(){
-  if (!endpoint()){ $("setup").hidden = false; return Promise.resolve(); }
+  if (!endpoint()){
+    $("setup").hidden = false;
+    $("notready").hidden = false;
+    return Promise.resolve();
+  }
   $("setup").hidden = true;
+  $("notready").hidden = true;
   return fetch(endpoint() + "?action=bootstrap")
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -324,6 +351,24 @@ function load(){
 }
 
 /* ---------- 選択肢の組み立て ---------- */
+/** エリアを 大阪市 / 堺市 / その他 に分けて表示する */
+function fillAreaSelect(el, list){
+  el.innerHTML = "";
+  var ph = document.createElement("option"); ph.value = ""; ph.textContent = "（選択）"; el.appendChild(ph);
+  var sakai = [], osaka = [], other = [];
+  list.filter(function(v,i,a){ return v && a.indexOf(v) === i; }).forEach(function(v){
+    if (v.indexOf("堺市") === 0) sakai.push(v);
+    else if (/区$/.test(v)) osaka.push(v);
+    else other.push(v);
+  });
+  [["大阪市", osaka], ["堺市", sakai], ["その他", other]].forEach(function(g){
+    if (!g[1].length) return;
+    var og = document.createElement("optgroup"); og.label = g[0];
+    g[1].forEach(function(v){ var o=document.createElement("option"); o.value=v; o.textContent=v; og.appendChild(o); });
+    el.appendChild(og);
+  });
+}
+
 function fillSelect(el, list, placeholder){
   el.innerHTML = "";
   if (placeholder){ var o=document.createElement("option"); o.value=""; o.textContent=placeholder; el.appendChild(o); }
@@ -351,7 +396,7 @@ function setChip(el, value){
 }
 function buildMasters(){
   var m = state.masters;
-  fillSelect($("f-area"), m.area||[], "（選択）");
+  fillAreaSelect($("f-area"), m.area||[]);
   fillSelect($("f-industry"), m.industry||[], "（選択）");
   fillSelect($("f-reason"), m.reason||[], "（なし）");
   fillChips($("f-status"), m.status||[], true);
@@ -399,6 +444,7 @@ $("save-new").addEventListener("click", function(){
   var item = collectNew();
   if (!item.address){ toast("住所を入れてください", true); $("f-address").focus(); return; }
   if (!item.status){ toast("ステータスを選んでください", true); return; }
+  if (!endpoint()){ toast("先に保存先の設定が必要です", true); $("go-setup").click(); return; }
   var btn = this; btn.disabled = true;
   send({action:"create", item:item}, "登録しました")
     .then(function(){ clearNew(); return load(); })
@@ -586,6 +632,14 @@ $("gas-save").addEventListener("click", function(){
 });
 
 /* ---------- 起動 ---------- */
+$("go-setup").addEventListener("click", function(){
+  $("setup").hidden = false;
+  $("setup").scrollIntoView({behavior:"smooth", block:"center"});
+  $("gas-url").focus();
+});
+state.masters = DEFAULTS;          // まず既定の選択肢で画面を作る
+state.targets = {"木村":22000, "原田":22000, "藤川":16000};
+buildMasters();
 state.me = localStorage.getItem(LS.me) || "";
 if (state.me) $("who").textContent = "担当：" + state.me;
 $("f-date").value = todayStr();
