@@ -52,6 +52,13 @@ input,select,textarea{
 }
 textarea{min-height:76px;resize:vertical}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal)}
+.addr-row{display:flex;align-items:stretch;border:1px solid var(--line-2);border-radius:10px;overflow:hidden;background:#fff}
+.addr-row:focus-within{outline:2px solid var(--teal);outline-offset:1px;border-color:var(--teal)}
+.addr-row input{border:0;border-radius:0;flex:1;min-width:0}
+.addr-row input:focus{outline:none}
+.addr-prefix{display:flex;align-items:center;padding:0 12px;background:var(--teal-l);color:var(--teal);
+  font-size:13.5px;font-weight:700;white-space:nowrap;max-width:46%;overflow:hidden}
+.addr-prefix.none{background:#f1f4f3;color:var(--ink-3);font-weight:400}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:420px){.row2{grid-template-columns:1fr}}
 
@@ -152,15 +159,18 @@ tfoot td{font-weight:700;background:#f7faf9}
   <section id="v-new">
     <div class="card">
       <h2>新しい訪問先を登録</h2>
-      <p class="hint">住所と業種、今日の手応えだけ入れれば登録できます。ほかは後からで大丈夫です。</p>
+      <p class="hint">エリアを選んでから、その先の住所だけ入れてください（区は書かなくてOK）。あとはステータスを選ぶだけです。</p>
+
+      <label class="fld"><span>エリア<i class="req">*</i></span>
+        <select id="f-area"></select></label>
 
       <label class="fld"><span>住所<i class="req">*</i></span>
-        <input id="f-address" placeholder="例）中央区南船場4-6-6" autocomplete="off"></label>
+        <div class="addr-row">
+          <span class="addr-prefix none" id="f-area-label">区を選ぶ</span>
+          <input id="f-address" placeholder="例）南船場4-6-6" autocomplete="off">
+        </div></label>
 
-      <div class="row2">
-        <label class="fld"><span>エリア</span><select id="f-area"></select></label>
-        <label class="fld"><span>業種</span><select id="f-industry"></select></label>
-      </div>
+      <label class="fld"><span>業種</span><select id="f-industry"></select></label>
 
       <label class="fld"><span>ステータス<i class="req">*</i></span>
         <div class="chips" id="f-status"></div></label>
@@ -433,15 +443,27 @@ function collectNew(){
     memo: $("f-memo").value.trim()
   };
 }
+function syncAreaLabel(){
+  var v = $("f-area").value, el = $("f-area-label");
+  el.textContent = v || "区を選ぶ";
+  el.classList.toggle("none", !v);
+}
+$("f-area").addEventListener("change", function(){
+  syncAreaLabel();
+  if ($("f-area").value) $("f-address").focus();
+});
+
 function clearNew(){
   ["f-address","f-company","f-quote","f-contract","f-memo","f-done"].forEach(function(id){ $(id).value=""; });
   $("f-date").value = todayStr();
   setChip($("f-status"), ""); setChip($("f-next"), "");
   $("f-reason").value = "";
+  $("f-area").value = ""; syncAreaLabel();
 }
 $("save-new").addEventListener("click", function(){
   if (!state.me){ askMe(); return; }
   var item = collectNew();
+  if (!item.area){ toast("エリア（区）を選んでください", true); $("f-area").focus(); return; }
   if (!item.address){ toast("住所を入れてください", true); $("f-address").focus(); return; }
   if (!item.status){ toast("ステータスを選んでください", true); return; }
   if (!endpoint()){ toast("先に保存先の設定が必要です", true); $("go-setup").click(); return; }
@@ -640,6 +662,7 @@ $("go-setup").addEventListener("click", function(){
 state.masters = DEFAULTS;          // まず既定の選択肢で画面を作る
 state.targets = {"木村":22000, "原田":22000, "藤川":16000};
 buildMasters();
+syncAreaLabel();
 state.me = localStorage.getItem(LS.me) || "";
 if (state.me) $("who").textContent = "担当：" + state.me;
 $("f-date").value = todayStr();
