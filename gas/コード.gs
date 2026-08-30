@@ -323,28 +323,24 @@ function writeLog_(caseId, item) {
 }
 
 /**
- * 追加する行を決める。
- * getLastRow() は見えない書式が残っている行も拾ってしまい、
- * データのずっと下に飛んでしまうことがあるため、実データの最終行を自分で探す。
+ * 実データが入っている最終行を返す。
+ * getLastRow() は空白文字だけの行も「内容あり」と数えるため、
+ * 全セルが空白（スペースのみを含む）の行はデータなしとみなす。
  */
-function appendRow_(sh, lay) {
+function lastDataRow_(sh, lay) {
   var last = sh.getLastRow();
-  if (last < lay.firstData) return lay.firstData;
-  var keys = [COL.date, COL.address, COL.status, COL.person, COL.no].map(function (n) { return lay.map[n]; })
-    .filter(function (c) { return c; });
+  if (last < lay.firstData) return lay.firstData - 1;
   var values = sh.getRange(lay.firstData, 1, last - lay.firstData + 1, sh.getLastColumn()).getValues();
-  var lastData = lay.firstData - 1;
-  values.forEach(function (v, i) {
-    var filled = keys.some(function (c) { return String(v[c - 1] || '').trim() !== ''; });
-    if (filled) lastData = lay.firstData + i;
-  });
-  var row = lastData + 1;
-  // 念のため、その行に何か入っていたら従来どおり末尾に足す
-  if (row <= last) {
-    var check = sh.getRange(row, 1, 1, sh.getLastColumn()).getValues()[0].join('');
-    if (check !== '') row = last + 1;
+  for (var i = values.length - 1; i >= 0; i--) {
+    var filled = values[i].some(function (v) { return String(v == null ? '' : v).trim() !== ''; });
+    if (filled) return lay.firstData + i;
   }
-  return Math.max(row, lay.firstData);
+  return lay.firstData - 1;
+}
+
+/** 追加する行を決める。データのすぐ下に足す。 */
+function appendRow_(sh, lay) {
+  return Math.max(lastDataRow_(sh, lay) + 1, lay.firstData);
 }
 
 function create_(item) {
@@ -420,6 +416,31 @@ function addLog_(item) {
     address: hit.address, method: item.method, result: item.result, logMemo: item.logMemo
   });
   return { ok: true, id: hit.id, row: hit.row, status: patch.status };
+}
+
+/* ================= お手入れ用 ================= */
+
+/**
+ * データより下にある空っぽの行をまとめて削除する。
+ * 見た目は空でもスペースなどが残っていると、新しい行がずっと下に追加されてしまうため。
+ * データが入っている行は絶対に消しません。実行前に必ず件数を確認してください。
+ */
+function 整理_下の空行を削除() {
+  var sh = sheet_();
+  var lay = ensureColumns_(sh, layout_(sh));
+  var lastData = lastDataRow_(sh, lay);
+  var maxRows = sh.getMaxRows();
+  Logger.log('データの最終行: ' + lastData + ' 行目');
+  Logger.log('シートの行数: ' + maxRows + ' 行');
+  if (maxRows <= lastData + 1) {
+    Logger.log('削除する空行はありません。');
+    return;
+  }
+  var from = lastData + 1;
+  var count = maxRows - lastData - 1;   // 入力用に1行だけ残す
+  sh.deleteRows(from, count);
+  Logger.log(from + ' 行目から ' + count + ' 行を削除しました。');
+  Logger.log('次に登録される行: ' + (lastData + 1) + ' 行目');
 }
 
 /* ================= 動作確認用 ================= */
