@@ -251,6 +251,9 @@ tfoot td{font-weight:700;background:#f7faf9}
           <input id="f-address" placeholder="例）南船場4-6-6" autocomplete="off">
         </div></label>
 
+      <label class="fld"><span>店名・屋号</span>
+        <input id="f-shopname" placeholder="例）もんじゃ焼き太郎" autocomplete="off"></label>
+
       <label class="fld"><span>業種</span><select id="f-industry"></select></label>
 
       <label class="fld"><span>AP方法<i class="req">*</i></span>
@@ -601,6 +604,7 @@ function collectNew(){
     industry: $("f-industry").value,
     area: $("f-area").value,
     address: $("f-address").value.trim(),
+    shopName: $("f-shopname").value.trim(),
     company: $("f-company").value.trim(),
     done: $("f-done").value,
     method: chipValue($("f-method")),
@@ -641,7 +645,7 @@ $("f-area").addEventListener("change", function(){
 });
 
 function clearNew(){
-  ["f-address","f-company","f-quote","f-contract","f-memo","f-done"].forEach(function(id){ $(id).value=""; });
+  ["f-address","f-shopname","f-company","f-quote","f-contract","f-memo","f-done"].forEach(function(id){ $(id).value=""; });
   $("f-date").value = todayStr();
   setChip($("f-status"), ""); setChip($("f-next"), "");
   setChip($("f-method"), ""); setChip($("f-result"), ""); syncAutoStatus();
@@ -669,7 +673,7 @@ function renderList(){
   var rows = state.rows.filter(function(r){
     return (!person || r.person === person) &&
            (!status || r.status === status) &&
-           (!q || (r.address + r.memo + r.company + r.industry).indexOf(q) >= 0);
+           (!q || (r.address + r.shopName + r.memo + r.company + r.industry).indexOf(q) >= 0);
   }).sort(function(a,b){ return String(b.date).localeCompare(String(a.date)); });
 
   $("l-count").textContent = rows.length + " 件";
@@ -679,10 +683,10 @@ function renderList(){
     var k = statusKind(r.status);
     var money = r.contract ? "契約 " + yen(r.contract) + "円" : (r.quote ? "見積 " + yen(r.quote) + "円" : "");
     return '<div class="item" data-row="' + r.row + '" style="border-left-color:' + k.c + '">' +
-      '<div class="top"><span class="name">' + esc(r.address || "(住所なし)") + '</span>' +
+      '<div class="top"><span class="name">' + esc(r.shopName || r.address || "(住所なし)") + '</span>' +
       '<span class="badge" style="color:' + k.c + '">' + esc(r.status) + '</span>' +
       (money ? '<span class="money">' + money + '</span>' : '') + '</div>' +
-      '<div class="sub">' + [r.lastAp || r.date, r.person, r.area, r.industry].filter(Boolean).map(esc).join("　") +
+      '<div class="sub">' + [r.shopName ? r.area + r.address : "", r.lastAp || r.date, r.person, r.industry].filter(Boolean).map(esc).join("　") +
         (logsOf(r.id).length ? "　AP" + logsOf(r.id).length + "回" : "") + '</div>' +
       (r.memo ? '<div class="sub">' + esc(r.memo.slice(0,60)) + '</div>' : '') +
       '</div>';
@@ -701,8 +705,8 @@ function openEdit(row){
   wrap.className = "sheet";
   wrap.innerHTML =
     '<div class="inner"><div class="sheetwrap"><button class="close" type="button">×</button>' +
-      '<h3>' + esc(r.address || "(住所なし)") + '</h3>' +
-      '<p class="hint">' + [r.date, r.person, r.area, r.industry].filter(Boolean).map(esc).join("　") + '</p>' +
+      '<h3>' + esc(r.shopName || r.address || "(住所なし)") + '</h3>' +
+      '<p class="hint">' + [r.area + r.address, r.date, r.person, r.industry].filter(Boolean).map(esc).join("　") + '</p>' +
       '<div class="card"><h2 style="font-size:14px">訪問を記録</h2>' +
         '<p class="hint">今日の訪問を1件として残します。ステータスは結果から自動で決まります。</p>' +
         '<label class="fld"><span>方法</span><div class="chips" id="e-method"></div></label>' +
@@ -722,6 +726,7 @@ function openEdit(row){
         '<label class="fld"><span>契約日</span><input id="e-cdate" type="date" value="' + toInputDate(r.contractDate) + '"></label>' +
       '</div>' +
       '<label class="fld"><span>クローズ理由</span><select id="e-reason"></select></label>' +
+      '<label class="fld"><span>店名・屋号</span><input id="e-shopname" value="' + esc(r.shopName) + '"></label>' +
       '<label class="fld"><span>管理会社・オーナー</span><input id="e-company" value="' + esc(r.company) + '"></label>' +
       '<label class="fld"><span>完成日・オープン日</span><input id="e-done" type="date" value="' + toInputDate(r.done) + '"></label>' +
       '<label class="fld"><span>メモ</span><textarea id="e-memo">' + esc(r.memo) + '</textarea></label>' +
@@ -772,6 +777,7 @@ function openEdit(row){
       quote: $("e-quote").value.replace(/[^0-9]/g,""),
       contract: $("e-contract").value.replace(/[^0-9]/g,""),
       reason: $("e-reason").value, company: $("e-company").value.trim(),
+      shopName: $("e-shopname").value.trim(),
       quoteDate: $("e-qdate").value, contractDate: $("e-cdate").value,
       done: $("e-done").value, memo: $("e-memo").value.trim()
     };
@@ -1013,7 +1019,7 @@ function daysLabel(sp){
 /** 案件の中身を収集手配書に引き継ぐリンク。
     店名はメモの先頭（食べログから取り込んだ場合はそこに店名が入る）を使う。 */
 function dispatchLink(r){
-  var name = String(r.memo || "").split(/[　\s\/]/)[0] || r.company || "";
+  var name = r.shopName || String(r.memo || "").split(/[　\s\/]/)[0] || r.company || "";
   var q = {
     name: name,
     addr: (r.area || "") + (r.address || ""),
@@ -1031,8 +1037,9 @@ function prefillFrom(sp){
   $("f-area").value = sp.area || "";
   syncAreaLabel();
   $("f-address").value = sp.address || "";
+  $("f-shopname").value = sp.name || "";
   $("f-industry").value = (state.masters.industry || []).indexOf(sp.industry) >= 0 ? sp.industry : "";
-  $("f-memo").value = [sp.name, sp.genre, sp.open ? "オープン " + sp.open : "", sp.tel]
+  $("f-memo").value = [sp.genre, sp.open ? "オープン " + sp.open : "", sp.tel]
     .filter(Boolean).join("　");
   setChip($("f-method"), ""); setChip($("f-result"), ""); syncAutoStatus();
   tab("t-new");

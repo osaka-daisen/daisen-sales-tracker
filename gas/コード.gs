@@ -31,7 +31,7 @@ var TARGETS = { '木村': 22000, '原田': 22000, '藤川': 16000 };   // 個人
 var KEY_HEADER = '見込み日';
 var COL = {
   no: 'No.', date: '見込み日', person: '担当', industry: '業種', area: 'エリア',
-  address: '住所詳細', company: '管理会社', done: '完成日', status: 'ステータス',
+  address: '住所詳細', shopName: '店名', company: '管理会社', done: '完成日', status: 'ステータス',
   quote: '見積金額(円)', contract: '契約金額(円)', next: '次回アクション',
   reason: 'クローズ理由', memo: '備考・メモ',
   quoteDate: '見積提出日', contractDate: '契約日', closeDate: 'クローズ日',
@@ -103,7 +103,7 @@ function layout_(sh) {
 
 /** ツールが使う列がなければ右端に足す（既存のデータには触らない） */
 function ensureColumns_(sh, lay) {
-  [COL.quoteDate, COL.contractDate, COL.closeDate, COL.lastAp, COL.apCount, COL.id, COL.updated]
+  [COL.shopName, COL.quoteDate, COL.contractDate, COL.closeDate, COL.lastAp, COL.apCount, COL.id, COL.updated]
     .forEach(function (name) {
       if (!lay.map[name]) {
         var col = sh.getLastColumn() + 1;
@@ -157,6 +157,7 @@ function readAll_() {
       industry: String(get(COL.industry) || ''),
       area: String(get(COL.area) || ''),
       address: String(get(COL.address) || ''),
+      shopName: String(get(COL.shopName) || ''),
       company: String(get(COL.company) || ''),
       done: fmtDate_(get(COL.done)),
       status: String(get(COL.status) || ''),
@@ -408,6 +409,7 @@ function setCells_(sh, lay, row, item) {
   if (item.industry !== undefined) put(COL.industry, item.industry);
   if (item.area !== undefined) put(COL.area, item.area);
   if (item.address !== undefined) put(COL.address, item.address);
+  if (item.shopName !== undefined) put(COL.shopName, item.shopName);
   if (item.company !== undefined) put(COL.company, item.company);
   if (item.done !== undefined) put(COL.done, item.done ? new Date(item.done) : '');
   if (item.status !== undefined) put(COL.status, item.status);
