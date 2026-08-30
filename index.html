@@ -59,6 +59,16 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--teal);outline-of
 .addr-prefix{display:flex;align-items:center;padding:0 12px;background:var(--teal-l);color:var(--teal);
   font-size:13.5px;font-weight:700;white-space:nowrap;max-width:46%;overflow:hidden}
 .addr-prefix.none{background:#f1f4f3;color:var(--ink-3);font-weight:400}
+.autostatus{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--teal-l);
+  border-radius:10px;padding:11px 13px;margin-bottom:14px}
+.autostatus .al{font-size:11.5px;font-weight:700;color:var(--teal-d)}
+.autostatus .av{font-size:14px;font-weight:700;color:var(--ink)}
+.autostatus button{margin-left:auto;padding:7px 11px;font-size:12px}
+.logs{margin:0;padding:0;list-style:none;font-size:12.5px}
+.logs li{padding:8px 0;border-bottom:1px solid var(--line);line-height:1.6}
+.logs li:last-child{border-bottom:0}
+.logs .d{color:var(--ink-3);font-size:11.5px}
+.logs .m{font-weight:700}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:420px){.row2{grid-template-columns:1fr}}
 
@@ -172,7 +182,18 @@ tfoot td{font-weight:700;background:#f7faf9}
 
       <label class="fld"><span>業種</span><select id="f-industry"></select></label>
 
-      <label class="fld"><span>ステータス<i class="req">*</i></span>
+      <label class="fld"><span>AP方法<i class="req">*</i></span>
+        <div class="chips" id="f-method"></div></label>
+
+      <label class="fld"><span>結果<i class="req">*</i></span>
+        <div class="chips" id="f-result"></div></label>
+
+      <div class="autostatus">
+        <span class="al">ステータス</span>
+        <span class="av" id="f-status-text">結果を選ぶと自動で決まります</span>
+        <button type="button" class="ghost" id="f-status-edit">手で選ぶ</button>
+      </div>
+      <label class="fld" id="f-status-wrap" hidden><span>ステータス（手動）</span>
         <div class="chips" id="f-status"></div></label>
 
       <label class="fld"><span>次回アクション</span>
@@ -251,6 +272,10 @@ tfoot td{font-weight:700;background:#f7faf9}
       <div style="overflow-x:auto"><table id="s-table"></table></div>
     </div>
     <div class="split">
+      <div class="card"><h2>AP方法の内訳</h2><ul class="rank" id="s-method"></ul></div>
+      <div class="card"><h2>結果の内訳</h2><ul class="rank" id="s-result"></ul></div>
+    </div>
+    <div class="split">
       <div class="card"><h2>業種別（AP）</h2><ul class="rank" id="s-industry"></ul></div>
       <div class="card"><h2>エリア別（AP）</h2><ul class="rank" id="s-area"></ul></div>
     </div>
@@ -278,6 +303,9 @@ var GAS_URL = "";
 var DEFAULTS = {
   person: ["木村","原田","藤川"],
   status: ["🔵 アプローチ中","🟡 見積・交渉中","🟠 契約予定","🟢 契約済","⚫ クローズ","⬜ 時期待ち"],
+  method: ["飛び込み訪問","再訪問","TEL","DM・郵送","メール","紹介・つながり"],
+  result: ["担当者と面談できた","名刺・パンフを置いた","不在だった","門前払い",
+           "見積依頼をもらった","見積を提出した","後日連絡の約束","断られた","契約になった"],
   next:   ["📝 見積提出","📄 見積フォロー","📞 TEL","🔄 再訪問","🏁 完成前再訪","✅ 完了","—"],
   reason: ["契約済み業者あり","指定業者あり","他社価格が安い","予算なし","連絡不通","オーナー不在","その他"],
   industry: ["居酒屋","焼き肉","ラーメン","和食","イタリアン","カレー","バー","立ち飲み","喫茶店","飲食店",
@@ -291,7 +319,25 @@ var DEFAULTS = {
 
 var LS = {url:"daisen-sales-gas-url", me:"daisen-sales-me", queue:"daisen-sales-queue"};
 var $ = function(id){ return document.getElementById(id); };
-var state = {rows:[], masters:{}, targets:{}, me:"", editing:null};
+var state = {rows:[], logs:[], masters:{}, targets:{}, me:"", editing:null};
+
+/* 結果からステータスを決める（サーバー側と同じ規則）。進んだときだけ更新する。 */
+var RESULT_TO_STATUS = {
+  "契約になった":"🟢 契約済", "断られた":"⚫ クローズ",
+  "見積を提出した":"🟡 見積・交渉中", "見積依頼をもらった":"🟡 見積・交渉中"
+};
+var STATUS_RANK = {"アプローチ中":1,"見積":2,"交渉":2,"契約予定":3,"契約済":4};
+function rankOf(st){
+  var s = String(st||""), best = 0;
+  Object.keys(STATUS_RANK).forEach(function(k){ if (s.indexOf(k)>=0) best = Math.max(best, STATUS_RANK[k]); });
+  return best;
+}
+function statusFromResult(result, current){
+  var mapped = RESULT_TO_STATUS[result];
+  if (!mapped) return current || (state.masters.status||DEFAULTS.status)[0];
+  if (mapped.indexOf("クローズ")>=0 || mapped.indexOf("契約済")>=0) return mapped;
+  return rankOf(mapped) > rankOf(current) ? mapped : (current || mapped);
+}
 
 /* ---------- 共通 ---------- */
 function endpoint(){ return GAS_URL || localStorage.getItem(LS.url) || ""; }
@@ -370,6 +416,7 @@ function load(){
     .then(function(d){
       if (!d.ok) throw new Error(d.error || "読み込みに失敗しました");
       state.rows = d.rows || [];
+      state.logs = d.logs || [];
       state.masters = d.masters || {};
       state.targets = d.targets || {};
       buildMasters();
@@ -430,6 +477,9 @@ function buildMasters(){
   fillSelect($("f-reason"), m.reason||[], "（なし）");
   fillChips($("f-status"), m.status||[], true);
   fillChips($("f-next"), m.next||[], false);
+  fillChips($("f-method"), m.method||[], false);
+  fillChips($("f-result"), m.result||[], false);
+  $("f-result").addEventListener("click", syncAutoStatus);
   fillSelect($("l-person"), (m.person||[]), "全員");
   fillSelect($("s-scope"), (m.person||[]), "全員");
   var st = $("l-status"); fillSelect(st, m.status||[], "すべてのステータス");
@@ -456,7 +506,11 @@ function collectNew(){
     address: $("f-address").value.trim(),
     company: $("f-company").value.trim(),
     done: $("f-done").value,
-    status: chipValue($("f-status")),
+    method: chipValue($("f-method")),
+    result: chipValue($("f-result")),
+    status: manualStatus ? chipValue($("f-status")) : statusFromResult(chipValue($("f-result")), ""),
+    logDate: $("f-date").value || todayStr(),
+    logMemo: $("f-memo").value.trim(),
     quote: $("f-quote").value.replace(/[^0-9]/g,""),
     contract: $("f-contract").value.replace(/[^0-9]/g,""),
     next: chipValue($("f-next")),
@@ -464,6 +518,21 @@ function collectNew(){
     memo: $("f-memo").value.trim()
   };
 }
+var manualStatus = false;
+function syncAutoStatus(){
+  if (manualStatus) return;
+  var result = chipValue($("f-result"));
+  var st = result ? statusFromResult(result, "") : "";
+  $("f-status-text").textContent = st || "結果を選ぶと自動で決まります";
+}
+$("f-status-edit").addEventListener("click", function(){
+  manualStatus = !manualStatus;
+  $("f-status-wrap").hidden = !manualStatus;
+  this.textContent = manualStatus ? "自動に戻す" : "手で選ぶ";
+  if (!manualStatus){ setChip($("f-status"), ""); syncAutoStatus(); }
+  else $("f-status-text").textContent = "下から選んでください";
+});
+
 function syncAreaLabel(){
   var v = $("f-area").value, el = $("f-area-label");
   el.textContent = v || "区を選ぶ";
@@ -478,6 +547,7 @@ function clearNew(){
   ["f-address","f-company","f-quote","f-contract","f-memo","f-done"].forEach(function(id){ $(id).value=""; });
   $("f-date").value = todayStr();
   setChip($("f-status"), ""); setChip($("f-next"), "");
+  setChip($("f-method"), ""); setChip($("f-result"), ""); syncAutoStatus();
   $("f-reason").value = "";
   $("f-area").value = ""; syncAreaLabel();
 }
@@ -486,7 +556,8 @@ $("save-new").addEventListener("click", function(){
   var item = collectNew();
   if (!item.area){ toast("エリア（区）を選んでください", true); $("f-area").focus(); return; }
   if (!item.address){ toast("住所を入れてください", true); $("f-address").focus(); return; }
-  if (!item.status){ toast("ステータスを選んでください", true); return; }
+  if (!item.method){ toast("AP方法を選んでください", true); return; }
+  if (!item.result){ toast("結果を選んでください", true); return; }
   if (!endpoint()){ toast("先に保存先の設定が必要です", true); $("go-setup").click(); return; }
   var btn = this; btn.disabled = true;
   send({action:"create", item:item}, "登録しました")
@@ -514,7 +585,8 @@ function renderList(){
       '<div class="top"><span class="name">' + esc(r.address || "(住所なし)") + '</span>' +
       '<span class="badge" style="color:' + k.c + '">' + esc(r.status) + '</span>' +
       (money ? '<span class="money">' + money + '</span>' : '') + '</div>' +
-      '<div class="sub">' + [r.date, r.person, r.area, r.industry].filter(Boolean).map(esc).join("　") + '</div>' +
+      '<div class="sub">' + [r.lastAp || r.date, r.person, r.area, r.industry].filter(Boolean).map(esc).join("　") +
+        (logsOf(r.id).length ? "　AP" + logsOf(r.id).length + "回" : "") + '</div>' +
       (r.memo ? '<div class="sub">' + esc(r.memo.slice(0,60)) + '</div>' : '') +
       '</div>';
   }).join("");
@@ -534,7 +606,15 @@ function openEdit(row){
     '<div class="inner"><div class="sheetwrap"><button class="close" type="button">×</button>' +
       '<h3>' + esc(r.address || "(住所なし)") + '</h3>' +
       '<p class="hint">' + [r.date, r.person, r.area, r.industry].filter(Boolean).map(esc).join("　") + '</p>' +
-      '<div class="card"><label class="fld"><span>ステータス</span><div class="chips" id="e-status"></div></label>' +
+      '<div class="card"><h2 style="font-size:14px">訪問を記録</h2>' +
+        '<p class="hint">今日の訪問を1件として残します。ステータスは結果から自動で決まります。</p>' +
+        '<label class="fld"><span>方法</span><div class="chips" id="e-method"></div></label>' +
+        '<label class="fld"><span>結果</span><div class="chips" id="e-result"></div></label>' +
+        '<label class="fld"><span>ひとことメモ</span><input id="e-logmemo" placeholder="例）担当者不在　来週再訪"></label>' +
+        '<button class="primary" id="e-log" type="button">この訪問を記録する</button></div>' +
+      '<div class="card"><h2 style="font-size:14px">訪問履歴</h2><ul class="logs" id="e-logs"></ul></div>' +
+      '<div class="card"><h2 style="font-size:14px">案件の内容を直す</h2>' +
+      '<label class="fld"><span>ステータス</span><div class="chips" id="e-status"></div></label>' +
       '<label class="fld"><span>次回アクション</span><div class="chips" id="e-next"></div></label>' +
       '<div class="row2">' +
         '<label class="fld"><span>見積金額(円)</span><input id="e-quote" inputmode="numeric" value="' + (r.quote||"") + '"></label>' +
@@ -551,6 +631,21 @@ function openEdit(row){
       '<button class="primary" id="e-save" type="button">保存する</button></div>' +
     '</div></div>';
   document.body.appendChild(wrap);
+  fillChips($("e-method"), state.masters.method||DEFAULTS.method, false);
+  fillChips($("e-result"), state.masters.result||DEFAULTS.result, false);
+  renderLogs(r.id, $("e-logs"));
+  $("e-log").addEventListener("click", function(){
+    var method = chipValue($("e-method")), result = chipValue($("e-result"));
+    if (!method){ toast("方法を選んでください", true); return; }
+    if (!result){ toast("結果を選んでください", true); return; }
+    this.disabled = true;
+    send({action:"log", item:{
+      id: r.id, row: r.row, person: state.me || r.person,
+      method: method, result: result, logMemo: $("e-logmemo").value.trim(), logDate: todayStr()
+    }}, "訪問を記録しました")
+      .then(function(){ wrap.remove(); return load(); })
+      .catch(function(){ wrap.remove(); });
+  });
   fillChips($("e-status"), state.masters.status||[], true); setChip($("e-status"), r.status);
   fillChips($("e-next"), state.masters.next||[], false);   setChip($("e-next"), r.next);
   fillSelect($("e-reason"), state.masters.reason||[], "（なし）"); $("e-reason").value = r.reason || "";
@@ -572,6 +667,21 @@ function openEdit(row){
       .catch(function(){ wrap.remove(); });
   });
 }
+function logsOf(caseId){
+  return state.logs.filter(function(l){ return l.caseId && l.caseId === caseId; })
+    .sort(function(a,b){ return String(b.date).localeCompare(String(a.date)); });
+}
+function renderLogs(caseId, el){
+  var list = logsOf(caseId);
+  el.innerHTML = list.length
+    ? list.map(function(l){
+        return "<li><span class='d'>" + esc(l.date) + "　" + esc(l.person) + "</span><br>" +
+               "<span class='m'>" + esc(l.method) + "</span>　" + esc(l.result) +
+               (l.memo ? "<br>" + esc(l.memo) : "") + "</li>";
+      }).join("")
+    : "<li style='color:var(--ink-3)'>まだ記録がありません。この案件で訪問したら上から記録してください。</li>";
+}
+
 function toInputDate(s){
   var m = String(s||"").match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
   return m ? m[1]+"-"+String(m[2]).padStart(2,"0")+"-"+String(m[3]).padStart(2,"0") : "";
@@ -589,22 +699,41 @@ function quoteDateOf(r){ return dkey(r.quoteDate) || dkey(r.date); }
 function contractDateOf(r){ return dkey(r.contractDate) || dkey(r.date); }
 function inMonth(key, month){ return key.slice(0,7) === month; }
 
+/* AP件数は活動ログの件数で数える（同じ先に3回行けば3AP）。
+   ログがまだ無い過去の案件は、見込み日に1回APしたものとして数える。 */
+function apEvents(scope){
+  var withLog = {};
+  state.logs.forEach(function(l){ if (l.caseId) withLog[l.caseId] = true; });
+  var events = state.logs.map(function(l){
+    var r = state.rows.filter(function(x){ return x.id === l.caseId; })[0] || {};
+    return {date:dkey(l.date), person:l.person || r.person || "", method:l.method, result:l.result,
+            area:l.area || r.area || "", industry:r.industry || "", caseId:l.caseId};
+  });
+  state.rows.forEach(function(r){
+    if (r.id && withLog[r.id]) return;
+    events.push({date:dkey(r.date), person:r.person, method:"", result:"",
+                 area:r.area, industry:r.industry, caseId:r.id});
+  });
+  return scope ? events.filter(function(e){ return e.person === scope; }) : events;
+}
+
 function renderSummary(){
   var month = $("s-month").value, scope = $("s-scope").value;
   var base = state.rows.filter(function(r){ return !scope || r.person === scope; });
+  var events = apEvents(scope);
 
   /* 今日・直近7日の動き（AP日） */
   var today = dkey(todayStr());
   var d = new Date(); d.setDate(d.getDate() - 6);
   var weekFrom = dkey(d.getFullYear() + "/" + (d.getMonth()+1) + "/" + d.getDate());
-  var todayAP = base.filter(function(r){ return apDate(r) === today; });
-  var weekAP  = base.filter(function(r){ var k = apDate(r); return k && k >= weekFrom && k <= today; });
+  var todayAP = events.filter(function(e){ return e.date === today; });
+  var weekAP  = events.filter(function(e){ return e.date && e.date >= weekFrom && e.date <= today; });
   var todayContract = base.filter(function(r){ return statusKind(r.status).k === "contract" && contractDateOf(r) === today; });
   $("s-today").innerHTML =
     kpi(todayAP.length, "今日のAP") + kpi(weekAP.length, "直近7日のAP") + kpi(todayContract.length, "今日の契約");
 
   /* 活動（AP日・見積提出日） */
-  var apRows = base.filter(function(r){ return inMonth(apDate(r), month); });
+  var apRows = events.filter(function(e){ return inMonth(e.date, month); });
   var quoteRows = base.filter(function(r){
     var k = statusKind(r.status).k;
     return (k==="quote"||k==="planned"||k==="contract") && inMonth(quoteDateOf(r), month);
@@ -613,9 +742,12 @@ function renderSummary(){
     return statusKind(r.status).k === "planned" && inMonth(quoteDateOf(r), month);
   });
   var plannedAmount = plannedRows.reduce(function(s,r){ return s + (Number(r.contract)||Number(r.quote)||0); }, 0);
+  var met = apRows.filter(function(e){ return e.result && (e.result.indexOf("面談")>=0 || e.result.indexOf("見積")>=0 || e.result.indexOf("契約")>=0); }).length;
+  var withResult = apRows.filter(function(e){ return e.result; }).length;
   $("s-act").innerHTML =
     kpi(apRows.length, "AP件数") + kpi(quoteRows.length, "見積提出") +
-    kpi(plannedRows.length, "契約予定") + kpi(yen(plannedAmount) + "円", "予定金額", true);
+    kpi(plannedRows.length, "契約予定") + kpi(yen(plannedAmount) + "円", "予定金額", true) +
+    kpi(withResult ? Math.round(met/withResult*100) + "%" : "—", "面談まで到達", true);
 
   /* 成績（契約日） */
   var contractRows = base.filter(function(r){
@@ -624,17 +756,21 @@ function renderSummary(){
   var amount = contractRows.reduce(function(s,r){ return s + (Number(r.contract)||0); }, 0);
   var targetAll = 0;
   Object.keys(state.targets).forEach(function(p){ if(!scope || p===scope) targetAll += state.targets[p]; });
+  var apPerContract = contractRows.length
+    ? (contractRows.reduce(function(s,r){ return s + Math.max(1, logsOf(r.id).length || r.apCount || 1); }, 0) / contractRows.length)
+    : 0;
   $("s-res").innerHTML =
     kpi(contractRows.length, "契約件数") + kpi(yen(amount) + "円", "実績金額", true) +
     kpi(targetAll ? yen(targetAll) + "円" : "—", "目標", true) +
-    kpi(targetAll ? Math.round(amount/targetAll*100) + "%" : "—", "達成率", true);
+    kpi(targetAll ? Math.round(amount/targetAll*100) + "%" : "—", "達成率", true) +
+    kpi(apPerContract ? apPerContract.toFixed(1) + "回" : "—", "契約までの平均AP", true);
 
   /* 担当者別 */
   var people = Object.keys(state.targets);
   state.rows.forEach(function(r){ if (r.person && people.indexOf(r.person)<0) people.push(r.person); });
   var head = "<thead><tr><th>担当</th><th>AP</th><th>見積</th><th>予定</th><th>契約</th><th>実績金額</th><th>目標</th><th>達成率</th></tr></thead>";
   var body = people.map(function(p){
-    var ap = apRows.filter(function(r){ return r.person === p; }).length;
+    var ap = apRows.filter(function(e){ return e.person === p; }).length;
     var qn = quoteRows.filter(function(r){ return r.person === p; }).length;
     var pn = plannedRows.filter(function(r){ return r.person === p; }).length;
     var cs = contractRows.filter(function(r){ return r.person === p; });
@@ -651,9 +787,13 @@ function renderSummary(){
     yen(allTg) + "</td><td>" + (allTg ? Math.round(amount/allTg*100)+"%" : "—") + "</td></tr></tfoot>";
   $("s-table").innerHTML = head + "<tbody>" + body + "</tbody>" + foot;
 
+  rankInto($("s-method"), apRows.filter(function(e){ return e.method; }), "method");
+  rankInto($("s-result"), apRows.filter(function(e){ return e.result; }), "result");
   rankInto($("s-industry"), apRows, "industry");
   rankInto($("s-area"), apRows, "area");
-  rankInto($("s-reason"), apRows.filter(function(r){ return statusKind(r.status).k==="closed"; }), "reason");
+  rankInto($("s-reason"), base.filter(function(r){
+    return statusKind(r.status).k==="closed" && inMonth(dkey(r.closeDate) || dkey(r.date), month);
+  }), "reason");
 }
 function kpi(n, l, small){
   return '<div class="kpi"><div class="n"' + (small?' style="font-size:19px"':'') + '>' + n + '</div><div class="l">' + l + '</div></div>';
