@@ -731,12 +731,14 @@ function openEdit(row){
       '<label class="fld"><span>完成日・オープン日</span><input id="e-done" type="date" value="' + toInputDate(r.done) + '"></label>' +
       '<label class="fld"><span>メモ</span><textarea id="e-memo">' + esc(r.memo) + '</textarea></label>' +
       '<button class="primary" id="e-save" type="button">保存する</button></div>' +
-      '<div class="card"><h2 style="font-size:14px">契約が決まったら</h2>' +
-        '<p class="hint">この案件の住所・店名を引き継いで次の書類に進めます。</p>' +
-        '<a class="linkrow" id="e-dispatch" href="#" target="_blank" rel="noopener">' +
-          '<span class="t">収集手配書を作る</span><span class="d">住所・品目を入れた状態で開きます</span><span class="arw">›</span></a>' +
+      '<div class="card"><h2 style="font-size:14px">書類をつくる</h2>' +
+        '<p class="hint">この案件の店名・住所を引き継いで開きます。上から、見積 → 契約 → 手配の順です。</p>' +
+        '<a class="linkrow" id="e-estimate" href="#" target="_blank" rel="noopener">' +
+          '<span class="t">見積書を作る</span><span class="d">宛名・現場名・住所・金額を入れた状態で開きます</span><span class="arw">›</span></a>' +
         '<a class="linkrow" href="https://osaka-daisen.github.io/daisen-ippan-form/sakusei/" target="_blank" rel="noopener">' +
           '<span class="t">契約書類メーカーを開く</span><span class="d">お申込みフォームの内容から契約書一式を作成</span><span class="arw">›</span></a>' +
+        '<a class="linkrow" id="e-dispatch" href="#" target="_blank" rel="noopener">' +
+          '<span class="t">収集手配書を作る</span><span class="d">住所・品目を入れた状態で開きます</span><span class="arw">›</span></a>' +
         '<button class="ghost" id="e-formurl" type="button" style="margin-top:4px">お申込みフォームのURLをコピー</button>' +
       '</div>' +
     '</div></div>';
@@ -760,6 +762,7 @@ function openEdit(row){
   fillChips($("e-next"), state.masters.next||[], false);   setChip($("e-next"), r.next);
   fillSelect($("e-reason"), state.masters.reason||[], "（なし）"); $("e-reason").value = r.reason || "";
   $("e-dispatch").href = dispatchLink(r);
+  $("e-estimate").href = estimateLink(r);
   $("e-formurl").addEventListener("click", function(){
     var url = "https://osaka-daisen.github.io/daisen-ippan-form/?kind=ippan";
     var btn = this;
@@ -1014,6 +1017,27 @@ function daysLabel(sp){
   if (diff > 0) return "　あと" + diff + "日";
   if (diff === 0) return "　本日";
   return "　" + (-diff) + "日前に開店";
+}
+
+/** 案件の中身を見積書作成ツールに引き継ぐリンク。
+    見積書ツールは ?d= にJSONをbase64で入れると、その内容で編集画面が開く作り。
+    定期回収の定型（収集頻度・時間帯・休止日・付帯品目）も一緒に入れておく。 */
+function estimateLink(r){
+  var d = {
+    clientName: r.company || r.shopName || "",
+    clientSuffix: r.company ? "御中" : "様",
+    siteName: r.shopName || "",
+    siteAddress: (r.area || "") + (r.address || ""),
+    salesPerson: r.person || "",
+    items: [{ name:"事業系一般廃棄物", qty:"", price: r.quote ? String(r.quote) : "", remarks:"" }],
+    freq: "月曜日〜土曜日",
+    time: "24:00〜8:00",
+    hol: "毎週日曜日、12/31〜1/4",
+    extras: ["ビン・カン・ペットボトル", "ダンボール・シュレッター・古紙"],
+    note: "・月額でのお見積金額となります。"
+  };
+  var b64 = btoa(unescape(encodeURIComponent(JSON.stringify(d))));
+  return "https://osaka-daisen.github.io/estimate/?d=" + encodeURIComponent(b64);
 }
 
 /** 案件の中身を収集手配書に引き継ぐリンク。
