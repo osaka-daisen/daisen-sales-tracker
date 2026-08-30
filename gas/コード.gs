@@ -26,7 +26,9 @@ var COL = {
   no: 'No.', date: '見込み日', person: '担当', industry: '業種', area: 'エリア',
   address: '住所詳細', company: '管理会社', done: '完成日', status: 'ステータス',
   quote: '見積金額(円)', contract: '契約金額(円)', next: '次回アクション',
-  reason: 'クローズ理由', memo: '備考・メモ', id: 'ID', updated: '更新日時'
+  reason: 'クローズ理由', memo: '備考・メモ',
+  quoteDate: '見積提出日', contractDate: '契約日', closeDate: 'クローズ日',
+  id: 'ID', updated: '更新日時'
 };
 
 // スプレッドシートが空のときに使う既定の選択肢
@@ -64,9 +66,9 @@ function layout_(sh) {
   throw new Error('見出し行が見つかりません（「' + KEY_HEADER + '」の列が必要です）');
 }
 
-/** ID・更新日時の列がなければ右端に足す（既存のデータには触らない） */
+/** ツールが使う列がなければ右端に足す（既存のデータには触らない） */
 function ensureColumns_(sh, lay) {
-  [COL.id, COL.updated].forEach(function (name) {
+  [COL.quoteDate, COL.contractDate, COL.closeDate, COL.id, COL.updated].forEach(function (name) {
     if (!lay.map[name]) {
       var col = sh.getLastColumn() + 1;
       sh.getRange(lay.headerRow, col).setValue(name);
@@ -107,6 +109,9 @@ function readAll_() {
       next: String(get(COL.next) || ''),
       reason: String(get(COL.reason) || ''),
       memo: String(get(COL.memo) || ''),
+      quoteDate: fmtDate_(get(COL.quoteDate)),
+      contractDate: fmtDate_(get(COL.contractDate)),
+      closeDate: fmtDate_(get(COL.closeDate)),
       updated: fmtDate_(get(COL.updated))
     });
   });
@@ -216,7 +221,30 @@ function setCells_(sh, lay, row, item) {
   if (item.next !== undefined) put(COL.next, item.next);
   if (item.reason !== undefined) put(COL.reason, item.reason);
   if (item.memo !== undefined) put(COL.memo, item.memo);
+  if (item.quoteDate !== undefined) put(COL.quoteDate, item.quoteDate ? new Date(item.quoteDate) : '');
+  if (item.contractDate !== undefined) put(COL.contractDate, item.contractDate ? new Date(item.contractDate) : '');
+  if (item.closeDate !== undefined) put(COL.closeDate, item.closeDate ? new Date(item.closeDate) : '');
   put(COL.updated, new Date());
+}
+
+/**
+ * ステータスに応じて日付を自動で入れる（すでに日付が入っていれば触らない）。
+ * 成績は契約日、活動は見積提出日で集計するため、入力の手間を増やさずに日付を残す。
+ */
+function stampDates_(item, current) {
+  current = current || {};
+  var st = String(item.status || current.status || '');
+  var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd');
+  var has = function (key) {
+    return (item[key] !== undefined && item[key] !== '') || (current[key] && String(current[key]) !== '');
+  };
+  if (st.indexOf('契約済') >= 0 && !has('contractDate')) item.contractDate = today;
+  // 見積を出した時点＝見積・交渉中／契約予定／契約済。最初に進んだ日を残す。
+  if ((st.indexOf('見積') >= 0 || st.indexOf('交渉') >= 0 || st.indexOf('契約') >= 0) && !has('quoteDate')) {
+    item.quoteDate = today;
+  }
+  if (st.indexOf('クローズ') >= 0 && !has('closeDate')) item.closeDate = today;
+  return item;
 }
 
 function create_(item) {
@@ -225,6 +253,7 @@ function create_(item) {
   var row = Math.max(sh.getLastRow() + 1, lay.firstData);
   var id = Utilities.getUuid();
   sh.getRange(row, lay.map[COL.id]).setValue(id);
+  stampDates_(item, null);
   // No. は既存の最大値+1
   if (lay.map[COL.no]) {
     var maxNo = 0;
@@ -251,6 +280,7 @@ function update_(item) {
     data.sh.getRange(hit.row, data.lay.map[COL.id]).setValue(newId);
     hit.id = newId;
   }
+  stampDates_(item, hit);
   setCells_(data.sh, data.lay, hit.row, item);
   return { ok: true, id: hit.id, row: hit.row };
 }

@@ -220,20 +220,39 @@ tfoot td{font-weight:700;background:#f7faf9}
   <!-- ============ 集計 ============ -->
   <section id="v-sum" hidden>
     <div class="card">
+      <h2>今日の動き</h2>
+      <p class="hint">訪問した日（AP日）で数えています</p>
+      <div class="kpis" id="s-today"></div>
+    </div>
+
+    <div class="card">
       <div class="filters">
         <select id="s-month"></select>
         <select id="s-scope"><option value="">全員</option></select>
       </div>
+      <p class="hint" style="margin:0">活動はAP日、成績は契約日で集計します。</p>
     </div>
-    <div class="kpis" id="s-kpis"></div>
+
+    <div class="card">
+      <h2>活動</h2>
+      <p class="hint">その月に動いた件数。AP日・見積提出日で数えます</p>
+      <div class="kpis" id="s-act"></div>
+    </div>
+
+    <div class="card">
+      <h2>成績</h2>
+      <p class="hint">その月に契約した件数と金額。契約日で数えます</p>
+      <div class="kpis" id="s-res"></div>
+    </div>
+
     <div class="card">
       <h2>担当者別</h2>
-      <p class="hint">AP件数＝その月に動いた件数／見積提出＝見積・交渉中＋契約予定＋契約済／実績金額は契約済のみ／達成率＝実績÷目標</p>
+      <p class="hint">AP・見積・予定は活動（発生日）、契約・金額は成績（契約日）です</p>
       <div style="overflow-x:auto"><table id="s-table"></table></div>
     </div>
     <div class="split">
-      <div class="card"><h2>業種別</h2><ul class="rank" id="s-industry"></ul></div>
-      <div class="card"><h2>エリア別</h2><ul class="rank" id="s-area"></ul></div>
+      <div class="card"><h2>業種別（AP）</h2><ul class="rank" id="s-industry"></ul></div>
+      <div class="card"><h2>エリア別（AP）</h2><ul class="rank" id="s-area"></ul></div>
     </div>
     <div class="card"><h2>クローズ理由</h2><ul class="rank" id="s-reason"></ul></div>
   </section>
@@ -417,7 +436,9 @@ function buildMasters(){
   if (state.me) $("l-person").value = state.me;
   // 月の選択肢
   var months = {};
-  state.rows.forEach(function(r){ var mm = monthOf(r.date); if(mm) months[mm]=1; });
+  state.rows.forEach(function(r){
+    [r.date, r.contractDate, r.quoteDate].forEach(function(dd){ var mm = monthOf(dd); if(mm) months[mm]=1; });
+  });
   var list = Object.keys(months).sort().reverse();
   var now = new Date(), cur = now.getFullYear()+"/"+String(now.getMonth()+1).padStart(2,"0");
   if (list.indexOf(cur) < 0) list.unshift(cur);
@@ -519,6 +540,10 @@ function openEdit(row){
         '<label class="fld"><span>見積金額(円)</span><input id="e-quote" inputmode="numeric" value="' + (r.quote||"") + '"></label>' +
         '<label class="fld"><span>契約金額(円)</span><input id="e-contract" inputmode="numeric" value="' + (r.contract||"") + '"></label>' +
       '</div>' +
+      '<div class="row2">' +
+        '<label class="fld"><span>見積提出日</span><input id="e-qdate" type="date" value="' + toInputDate(r.quoteDate) + '"></label>' +
+        '<label class="fld"><span>契約日</span><input id="e-cdate" type="date" value="' + toInputDate(r.contractDate) + '"></label>' +
+      '</div>' +
       '<label class="fld"><span>クローズ理由</span><select id="e-reason"></select></label>' +
       '<label class="fld"><span>管理会社・オーナー</span><input id="e-company" value="' + esc(r.company) + '"></label>' +
       '<label class="fld"><span>完成日・オープン日</span><input id="e-done" type="date" value="' + toInputDate(r.done) + '"></label>' +
@@ -538,6 +563,7 @@ function openEdit(row){
       quote: $("e-quote").value.replace(/[^0-9]/g,""),
       contract: $("e-contract").value.replace(/[^0-9]/g,""),
       reason: $("e-reason").value, company: $("e-company").value.trim(),
+      quoteDate: $("e-qdate").value, contractDate: $("e-cdate").value,
       done: $("e-done").value, memo: $("e-memo").value.trim()
     };
     this.disabled = true;
@@ -551,52 +577,83 @@ function toInputDate(s){
   return m ? m[1]+"-"+String(m[2]).padStart(2,"0")+"-"+String(m[3]).padStart(2,"0") : "";
 }
 
-/* ---------- 集計（数式に頼らずこちらで計算する） ---------- */
+/* ---------- 集計（数式に頼らずこちらで計算する） ----------
+   活動＝AP日／見積提出日、成績＝契約日で数える。
+   古い行には日付が入っていないので、その場合は見込み日で代用する。 */
+function dkey(s){
+  var m = String(s||"").match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  return m ? m[1] + "/" + String(m[2]).padStart(2,"0") + "/" + String(m[3]).padStart(2,"0") : "";
+}
+function apDate(r){ return dkey(r.date); }
+function quoteDateOf(r){ return dkey(r.quoteDate) || dkey(r.date); }
+function contractDateOf(r){ return dkey(r.contractDate) || dkey(r.date); }
+function inMonth(key, month){ return key.slice(0,7) === month; }
+
 function renderSummary(){
   var month = $("s-month").value, scope = $("s-scope").value;
-  var rows = state.rows.filter(function(r){
-    return monthOf(r.date) === month && (!scope || r.person === scope);
+  var base = state.rows.filter(function(r){ return !scope || r.person === scope; });
+
+  /* 今日・直近7日の動き（AP日） */
+  var today = dkey(todayStr());
+  var d = new Date(); d.setDate(d.getDate() - 6);
+  var weekFrom = dkey(d.getFullYear() + "/" + (d.getMonth()+1) + "/" + d.getDate());
+  var todayAP = base.filter(function(r){ return apDate(r) === today; });
+  var weekAP  = base.filter(function(r){ var k = apDate(r); return k && k >= weekFrom && k <= today; });
+  var todayContract = base.filter(function(r){ return statusKind(r.status).k === "contract" && contractDateOf(r) === today; });
+  $("s-today").innerHTML =
+    kpi(todayAP.length, "今日のAP") + kpi(weekAP.length, "直近7日のAP") + kpi(todayContract.length, "今日の契約");
+
+  /* 活動（AP日・見積提出日） */
+  var apRows = base.filter(function(r){ return inMonth(apDate(r), month); });
+  var quoteRows = base.filter(function(r){
+    var k = statusKind(r.status).k;
+    return (k==="quote"||k==="planned"||k==="contract") && inMonth(quoteDateOf(r), month);
   });
-  var contracts = rows.filter(function(r){ return statusKind(r.status).k === "contract"; });
-  var planned = rows.filter(function(r){ return statusKind(r.status).k === "planned"; });
-  var quotes = rows.filter(function(r){ var k=statusKind(r.status).k; return k==="quote"||k==="planned"||k==="contract"; });
-  var plannedAmount = planned.reduce(function(s,r){ return s + (Number(r.contract)||Number(r.quote)||0); }, 0);
-  var amount = contracts.reduce(function(s,r){ return s + (Number(r.contract)||0); }, 0);
+  var plannedRows = base.filter(function(r){
+    return statusKind(r.status).k === "planned" && inMonth(quoteDateOf(r), month);
+  });
+  var plannedAmount = plannedRows.reduce(function(s,r){ return s + (Number(r.contract)||Number(r.quote)||0); }, 0);
+  $("s-act").innerHTML =
+    kpi(apRows.length, "AP件数") + kpi(quoteRows.length, "見積提出") +
+    kpi(plannedRows.length, "契約予定") + kpi(yen(plannedAmount) + "円", "予定金額", true);
+
+  /* 成績（契約日） */
+  var contractRows = base.filter(function(r){
+    return statusKind(r.status).k === "contract" && inMonth(contractDateOf(r), month);
+  });
+  var amount = contractRows.reduce(function(s,r){ return s + (Number(r.contract)||0); }, 0);
   var targetAll = 0;
   Object.keys(state.targets).forEach(function(p){ if(!scope || p===scope) targetAll += state.targets[p]; });
+  $("s-res").innerHTML =
+    kpi(contractRows.length, "契約件数") + kpi(yen(amount) + "円", "実績金額", true) +
+    kpi(targetAll ? yen(targetAll) + "円" : "—", "目標", true) +
+    kpi(targetAll ? Math.round(amount/targetAll*100) + "%" : "—", "達成率", true);
 
-  $("s-kpis").innerHTML =
-    kpi(rows.length, "AP件数") + kpi(quotes.length, "見積提出") +
-    kpi(planned.length, "契約予定") + kpi(contracts.length, "契約") +
-    kpi(yen(amount) + "円", "実績金額", true) +
-    kpi(targetAll ? Math.round(amount/targetAll*100) + "%" : "—", "達成率", true) +
-    kpi(yen(plannedAmount) + "円", "予定金額", true);
-
-  // 担当者別
+  /* 担当者別 */
   var people = Object.keys(state.targets);
   state.rows.forEach(function(r){ if (r.person && people.indexOf(r.person)<0) people.push(r.person); });
   var head = "<thead><tr><th>担当</th><th>AP</th><th>見積</th><th>予定</th><th>契約</th><th>実績金額</th><th>目標</th><th>達成率</th></tr></thead>";
   var body = people.map(function(p){
-    var mine = rows.filter(function(r){ return r.person === p; });
-    var c = mine.filter(function(r){ return statusKind(r.status).k === "contract"; });
-    var pn = mine.filter(function(r){ return statusKind(r.status).k === "planned"; }).length;
-    var qn = mine.filter(function(r){ var k=statusKind(r.status).k; return k==="quote"||k==="planned"||k==="contract"; }).length;
-    var amt = c.reduce(function(s,r){ return s + (Number(r.contract)||0); }, 0);
+    var ap = apRows.filter(function(r){ return r.person === p; }).length;
+    var qn = quoteRows.filter(function(r){ return r.person === p; }).length;
+    var pn = plannedRows.filter(function(r){ return r.person === p; }).length;
+    var cs = contractRows.filter(function(r){ return r.person === p; });
+    var amt = cs.reduce(function(s,r){ return s + (Number(r.contract)||0); }, 0);
     var tg = state.targets[p] || 0;
     var pct = tg ? Math.round(amt/tg*100) : 0;
-    return "<tr><td>" + esc(p) + "</td><td>" + mine.length + "</td><td>" + qn + "</td><td>" + pn + "</td><td>" + c.length +
+    return "<tr><td>" + esc(p) + "</td><td>" + ap + "</td><td>" + qn + "</td><td>" + pn + "</td><td>" + cs.length +
       "</td><td>" + yen(amt) + "</td><td>" + yen(tg) + "</td><td>" + (tg ? pct + "%" : "—") +
       '<div class="bar"><span style="width:' + Math.min(100,pct) + '%"></span></div></td></tr>';
   }).join("");
-  var allAmt = amount, allTg = 0;
-  people.forEach(function(p){ allTg += state.targets[p]||0; });
-  var foot = "<tfoot><tr><td>合計</td><td>" + rows.length + "</td><td>" + quotes.length + "</td><td>" + planned.length + "</td><td>" + contracts.length +
-    "</td><td>" + yen(allAmt) + "</td><td>" + yen(allTg) + "</td><td>" + (allTg ? Math.round(allAmt/allTg*100)+"%" : "—") + "</td></tr></tfoot>";
+  var allTg = 0; people.forEach(function(p){ allTg += state.targets[p]||0; });
+  var foot = "<tfoot><tr><td>合計</td><td>" + apRows.length + "</td><td>" + quoteRows.length + "</td><td>" +
+    plannedRows.length + "</td><td>" + contractRows.length + "</td><td>" + yen(amount) + "</td><td>" +
+    yen(allTg) + "</td><td>" + (allTg ? Math.round(amount/allTg*100)+"%" : "—") + "</td></tr></tfoot>";
   $("s-table").innerHTML = head + "<tbody>" + body + "</tbody>" + foot;
 
-  rankInto($("s-industry"), rows, "industry");
-  rankInto($("s-area"), rows, "area");
-  rankInto($("s-reason"), rows.filter(function(r){ return statusKind(r.status).k==="closed"; }), "reason");
+  rankInto($("s-industry"), apRows, "industry");
+  rankInto($("s-area"), apRows, "area");
+  rankInto($("s-reason"), apRows.filter(function(r){ return statusKind(r.status).k==="closed"; }), "reason");
 }
 function kpi(n, l, small){
   return '<div class="kpi"><div class="n"' + (small?' style="font-size:19px"':'') + '>' + n + '</div><div class="l">' + l + '</div></div>';
